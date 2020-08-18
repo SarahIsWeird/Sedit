@@ -1,0 +1,1 @@
+@gcc -o sedit.exe sedit.c -lncurses
