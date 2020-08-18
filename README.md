@@ -1,6 +1,6 @@
 # sedit
 
-sedit is a terminal text editor that aims to improve nano. Nano is a nice, easy to use editor, but lacks a few things. sedit strives to remedy these problems. While development is done on Windows, the sole dependency ``ncurses`` (except from libc) enables cross-compatibility for every platform that supports it.
+sedit is a terminal text editor fully written in C89, aiming to improve nano. Nano is a nice, easy to use editor, but lacks a few things. sedit strives to remedy these problems. While development is done on Windows, the sole dependency ``ncurses`` (except from libc) enables cross-compatibility for every platform that supports it.
 
 ## Roadmap
 
