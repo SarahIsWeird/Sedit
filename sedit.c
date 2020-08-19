@@ -12,12 +12,16 @@ int is_ctrl_pressed(int input, char key) {
     return name[0] == '^' && name[1] == (key - 32); /* Convert from lower case to upper case */
 }
 
+bool is_del_pressed(int input) {
+    const char *name = keyname(input);
+    return name[0] == '^' && name[1] == '@';
+}
+
 void update_info_bar(bool is_buffer_dirty, bool ask_for_save, size_t line_number, size_t col_number) {
     char line[COLS + 1];
     int i;
 
     memset(line, 0, COLS);
-
     move(LINES - 1, 0);
 
     for (i = 0; i < COLS; ++i) {
@@ -39,6 +43,14 @@ void update_info_bar(bool is_buffer_dirty, bool ask_for_save, size_t line_number
     }
 
     move(2 + line_number - 1, col_number);
+}
+
+void redraw_edit_win(WINDOW *window, char **buf, size_t lines) {
+    size_t i;
+
+    for (i = 0; i < lines; ++i) {
+        mvwprintw(window, i, 0, buf[i]);
+    }
 }
 
 int main(int argc, char **argv) {
@@ -161,7 +173,8 @@ int main(int argc, char **argv) {
     line_buf[0] = (char*) malloc(1000);
     memset(line_buf[0], 0, 1000);
 
-    int pos = 0;
+    int pos_x = 0;
+    int pos_y = 0;
 
     while (running) {
         ch = getch();
@@ -178,7 +191,7 @@ int main(int argc, char **argv) {
             is_buffer_dirty = false;
         } else if (is_ctrl_pressed(ch, 'c')) {
             if (is_buffer_dirty) {
-                update_info_bar(is_buffer_dirty, true, lines, pos);
+                update_info_bar(is_buffer_dirty, true, lines, pos_x);
                 
                 ch = getch();
 
@@ -204,27 +217,132 @@ int main(int argc, char **argv) {
             is_buffer_dirty = true;
 
             line_buf = (char**) realloc(line_buf, sizeof(char*) * ++lines);
-            line_buf[lines - 1] = (char*) malloc(1000);
-            memset(line_buf[lines - 1], 0, 1000);
+            line_buf[++pos_y] = (char*) malloc(1000);
+            memset(line_buf[pos_y], 0, 1000);
 
-            wmove(edit_win, lines - 1, 0);
-            pos = 0;
+            pos_x = 0;
+
+            wmove(edit_win, pos_y, 0);
+
         } else if (ch == '\b') {
             is_buffer_dirty = true;
 
-            line_buf[lines - 1][--pos] = '\0';
-            mvwaddch(edit_win, lines - 1, pos, ' ');
-            wmove(edit_win, lines - 1, pos);
+            if (pos_x == 0) {
+                if (pos_y > 0) {
+                    if (strlen(line_buf[pos_y]) > 0)
+                        strcat(line_buf[pos_y - 1], line_buf[pos_y]);
+
+                    --pos_y;
+                    pos_x = strlen(line_buf[pos_y]);
+                    wmove(edit_win, pos_y, pos_x);
+
+                    redraw_edit_win(edit_win, line_buf, lines);
+                }
+            } else if (pos_x < strlen(line_buf[pos_y])) {
+                int len = strlen(line_buf[pos_y]);
+
+                --pos_x;
+                memmove(line_buf[pos_y] + pos_x, line_buf[pos_y] + pos_x + 1, len - pos_x - 1);
+                line_buf[pos_y][len - 1] = '\0';
+
+                mvwprintw(edit_win, pos_y, 0, "%s ", line_buf[pos_y]);
+                wmove(edit_win, pos_y, pos_x);
+
+            } else {
+                line_buf[pos_y][--pos_x] = '\0';
+                mvwaddch(edit_win, pos_y, pos_x, ' ');
+                wmove(edit_win, pos_y, pos_x);
+            }
+        } else if (ch == KEY_UP) {
+            if (pos_y > 0)
+                --pos_y;
+
+            size_t len = strlen(line_buf[pos_y]);
+            
+            if (len < pos_x) {
+                pos_x = len;
+            }
+
+            wmove(edit_win, pos_y, pos_x);
+        } else if (ch == KEY_DOWN) {
+            if (pos_y + 1 < lines)
+                ++pos_y;
+            
+            size_t len = strlen(line_buf[pos_y]);
+
+            if (len < pos_x) {
+                pos_x = len;
+            }
+
+            wmove(edit_win, pos_y, pos_x);
+        } else if (ch == KEY_LEFT) {
+            if (pos_x > 0) {
+                --pos_x;
+            } else {
+                if (pos_y > 0) {
+                    --pos_y;
+
+                    pos_x = strlen(line_buf[pos_y]);
+                }
+            }
+
+            wmove(edit_win, pos_y, pos_x);
+        } else if (ch == KEY_RIGHT) {
+            size_t len = strlen(line_buf[pos_y]);
+
+            if (pos_x < len) {
+                ++pos_x;
+            } else {
+                if (pos_y + 1 < lines) {
+                    ++pos_y;
+                    pos_x = 0;
+                }
+            }
+
+            wmove(edit_win, pos_y, pos_x);
+        } else if (ch == KEY_DC) {
+            is_buffer_dirty = true;
+
+            size_t len = strlen(line_buf[pos_y]);
+
+            if (pos_x == len) {
+                if (pos_y + 1 < lines) {
+                    strcat(line_buf[pos_y], line_buf[pos_y + 1]);
+                    memset(line_buf[pos_y + 1], 0, strlen(line_buf[pos_y + 1]));
+                }
+
+                redraw_edit_win(edit_win, line_buf, lines);
+            } else {
+                memcpy(line_buf[pos_y] + pos_x, line_buf[pos_y] + pos_x + 1, len - pos_x);
+                line_buf[pos_y][len] = '\0';
+
+                mvwprintw(edit_win, pos_y, 0, "%s ", line_buf[pos_y]);
+                wmove(edit_win, pos_y, pos_x);
+            }
         }
         
         else if (ch < 256) {
             is_buffer_dirty = true;
 
-            line_buf[lines - 1][pos++] = ch;
-            waddch(edit_win, ch);
+            if (pos_x < strlen(line_buf[pos_y])) {
+                char tmp_buf[1000];
+
+                memset(tmp_buf, 0, 1000);
+                strncpy(tmp_buf, line_buf[pos_y] + pos_x, strlen(line_buf[pos_y]) - pos_x);
+
+                line_buf[pos_y][pos_x++] = ch;
+
+                strncpy(line_buf[pos_y] + pos_x, tmp_buf, strlen(tmp_buf));
+                mvwprintw(edit_win, pos_y, 0, line_buf[pos_y]);
+                wmove(edit_win, pos_y, pos_x);
+            } else {
+                mvwaddch(edit_win, pos_y, pos_x, ch);
+
+                line_buf[pos_y][pos_x++] = ch;
+            }
         }
 
-        update_info_bar(is_buffer_dirty, false, lines, pos);
+        update_info_bar(is_buffer_dirty, false, pos_y + 1, pos_x);
 
         wrefresh(edit_win);
     }
